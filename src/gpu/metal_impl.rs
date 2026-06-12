@@ -271,6 +271,7 @@ impl GpuMiner {
         running: Arc<AtomicBool>,
         hashrate: Arc<Mutex<f64>>,
         share_tx: mpsc::Sender<FoundShare>,
+        subscription: Arc<Mutex<Option<crate::stratum::Subscription>>>,
     ) {
         let device = self.device.clone();
         let command_queue = self.command_queue.clone();
@@ -282,6 +283,7 @@ impl GpuMiner {
             let mut hash_count: u64 = 0;
             let mut last_report = Instant::now();
             let mut nonce_base: u32 = 0;
+            let mut extranonce2_counter: u64 = 0;
 
             // Pre-allocate buffers (reused across batches)
             let mid_buf = device.new_buffer(32, MTLResourceOptions::StorageModeShared);
@@ -314,12 +316,36 @@ impl GpuMiner {
                 };
 
                 if let Some((job, target)) = job_data {
+                    // Get extranonce1 from subscription
+                    let extranonce1 = {
+                        let sub = subscription.lock().unwrap();
+                        sub.as_ref()
+                            .map(|s| s.extranonce1.clone())
+                            .unwrap_or_default()
+                    };
+
+                    // Increment extranonce2 each search pass (like Python version)
+                    // extranonce2 is little-endian bytes, then hex-encoded for stratum submit
+                    extranonce2_counter = extranonce2_counter.wrapping_add(1);
+                    let extranonce2 = {
+                        let bytes = extranonce2_counter.to_le_bytes();
+                        hex::encode(bytes)
+                    };
+
                     // Build header and compute midstate on CPU
                     let merkle_root = {
-                        let coinbase = job.build_coinbase("00", "00000000");
+                        let coinbase = job.build_coinbase(&extranonce1, &extranonce2);
                         job.compute_merkle_root(&coinbase)
                     };
-                    let ntime = u32::from_str_radix(&job.ntime, 16).unwrap_or(0);
+                    let ntime = {
+                        let job_ntime = u32::from_str_radix(&job.ntime, 16).unwrap_or(0);
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as u32;
+                        // Bump ntime to now if local clock is ahead (pools allow this)
+                        std::cmp::max(job_ntime, now)
+                    };
                     let header = job.build_header(&merkle_root, ntime, 0);
 
                     // Compute midstate: SHA-256 state after chunk1 (first 64 bytes)
@@ -384,15 +410,15 @@ impl GpuMiner {
                                 let hash = crate::job::double_sha256(&header);
                                 if hash_meets_target(&hash, &target) {
                                     eprintln!(
-                                        "{} GPU FOUND SHARE! nonce={:08x}, hash={}",
+                                        "{} \x1b[33mGPU FOUND SHARE!\x1b[0m nonce={:08x}, hash={}",
                                         ts(),
                                         nonce,
                                         hex::encode(hash)
                                     );
                                     let share = FoundShare {
                                         job_id: job.job_id.clone(),
-                                        extranonce2: "00000000".to_string(),
-                                        ntime: job.ntime.clone(),
+                                        extranonce2: extranonce2.clone(),
+                                        ntime: format!("{:08x}", ntime),
                                         nonce,
                                     };
                                     let _ = share_tx.send(share);

@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{mpsc, Arc, Mutex};
 
 use crate::job::MiningJob;
-use crate::stratum::FoundShare;
+use crate::stratum::{FoundShare, Subscription};
 
 #[derive(Clone)]
 pub struct GpuMiner;
@@ -23,6 +23,7 @@ impl GpuMiner {
         _running: Arc<AtomicBool>,
         _hashrate: Arc<Mutex<f64>>,
         _share_tx: mpsc::Sender<FoundShare>,
+        _subscription: Arc<Mutex<Option<Subscription>>>,
     ) {
         // Stub: never called since new() returns None
     }

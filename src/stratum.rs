@@ -163,6 +163,7 @@ fn handle_connection(
                 running_for_workers.clone(),
                 hashrate_for_workers.clone(),
                 share_tx.clone(),
+                sub_for_workers.clone(),
             );
         } else {
             eprintln!(
@@ -279,7 +280,11 @@ fn handle_connection(
                             "mining.set_difficulty" => {
                                 if let Some(params) = msg["params"].as_array() {
                                     if let Some(diff) = params[0].as_f64() {
-                                        eprintln!("{} Difficulty set to: {}", ts(), diff);
+                                        eprintln!(
+                                            "{} \x1b[33mDifficulty set to: {}\x1b[0m",
+                                            ts(),
+                                            diff
+                                        );
                                     }
                                 }
                             }
@@ -316,14 +321,21 @@ fn handle_connection(
                                         // Share submission response
                                         let accepted = msg["result"].as_bool().unwrap_or(false);
                                         if accepted {
-                                            eprintln!("{} Share accepted by pool!", ts());
+                                            eprintln!(
+                                                "{} \x1b[32mShare accepted by pool!\x1b[0m",
+                                                ts()
+                                            );
                                         } else {
                                             let reason = msg["error"]
                                                 .as_array()
                                                 .and_then(|a| a.get(1))
                                                 .and_then(|v| v.as_str())
                                                 .unwrap_or("unknown reason");
-                                            eprintln!("{} [WARN] Share rejected: {}", ts(), reason);
+                                            eprintln!(
+                                                "{} \x1b[31m[WARN] Share rejected: {}\x1b[0m",
+                                                ts(),
+                                                reason
+                                            );
                                         }
                                     }
                                 }
