@@ -10,10 +10,21 @@ use objc::rc::autoreleasepool;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crate::job::{hash_meets_target, MiningJob};
 use crate::stratum::FoundShare;
+
+fn ts() -> String {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let h = (secs / 3600) % 24;
+    let m = (secs / 60) % 60;
+    let s = secs % 60;
+    format!("[{:02}:{:02}:{:02}]", h, m, s)
+}
 
 /// The Metal shader source — uses midstate optimization.
 /// GPU only processes chunk2 (tail 16 bytes of header) + 2nd SHA-256.
@@ -373,7 +384,8 @@ impl GpuMiner {
                                 let hash = crate::job::double_sha256(&header);
                                 if hash_meets_target(&hash, &target) {
                                     eprintln!(
-                                        "GPU FOUND SHARE! nonce={:08x}, hash={}",
+                                        "{} GPU FOUND SHARE! nonce={:08x}, hash={}",
+                                        ts(),
                                         nonce,
                                         hex::encode(hash)
                                     );
@@ -388,7 +400,7 @@ impl GpuMiner {
                             }
                         }
                         Err(e) => {
-                            eprintln!("[ERROR] GPU batch error: {}", e);
+                            eprintln!("{} [ERROR] GPU batch error: {}", ts(), e);
                         }
                     }
 
@@ -399,7 +411,12 @@ impl GpuMiner {
                     if elapsed >= 10.0 {
                         let hr = hash_count as f64 / elapsed;
                         *hashrate.lock().unwrap() = hr;
-                        eprintln!("GPU Hashrate: {:.2} H/s ({:.2} MH/s)", hr, hr / 1_000_000.0);
+                        eprintln!(
+                            "{} GPU Hashrate: {:.2} H/s ({:.2} MH/s)",
+                            ts(),
+                            hr,
+                            hr / 1_000_000.0
+                        );
                         hash_count = 0;
                         last_report = Instant::now();
                     }

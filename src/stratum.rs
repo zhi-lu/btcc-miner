@@ -4,10 +4,22 @@ use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::gpu::GpuMiner;
 use crate::job::{hash_meets_target, nbits_to_target, MiningJob};
+
+/// Format a timestamp for log output: [HH:MM:SS]
+fn ts() -> String {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let h = (secs / 3600) % 24;
+    let m = (secs / 60) % 60;
+    let s = secs % 60;
+    format!("[{:02}:{:02}:{:02}]", h, m, s)
+}
 
 /// Represents a stratum mining subscription.
 #[derive(Debug, Clone)]
@@ -62,15 +74,17 @@ impl StratumClient {
         let password = self.password.clone();
         let gpu_miner = self.gpu_miner.clone();
 
+        let gpu_started = Arc::new(AtomicBool::new(false));
+
         thread::spawn(move || loop {
             if !running.load(Ordering::Relaxed) {
                 break;
             }
 
-            eprintln!("Connecting to {}...", server);
+            eprintln!("{} Connecting to {}...", ts(), server);
             match TcpStream::connect(&server) {
                 Ok(stream) => {
-                    eprintln!("Connected to {}", server);
+                    eprintln!("{} Connected to {}", ts(), server);
                     if let Err(e) = handle_connection(
                         stream,
                         &username,
@@ -80,17 +94,18 @@ impl StratumClient {
                         &subscription,
                         &hashrate,
                         &gpu_miner,
+                        &gpu_started,
                     ) {
-                        eprintln!("[ERROR] Connection error: {}", e);
+                        eprintln!("{} [ERROR] Connection error: {}", ts(), e);
                     }
                 }
                 Err(e) => {
-                    eprintln!("[ERROR] Failed to connect: {}", e);
+                    eprintln!("{} [ERROR] Failed to connect: {}", ts(), e);
                 }
             }
 
             if running.load(Ordering::Relaxed) {
-                eprintln!("Reconnecting in 5 seconds...");
+                eprintln!("{} Reconnecting in 5 seconds...", ts());
                 thread::sleep(Duration::from_secs(5));
             }
         });
@@ -110,6 +125,7 @@ fn handle_connection(
     subscription: &Arc<Mutex<Option<Subscription>>>,
     hashrate: &Arc<Mutex<f64>>,
     gpu_miner: &Option<GpuMiner>,
+    gpu_started: &Arc<AtomicBool>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Subscribe to mining
     let sub_msg = serde_json::json!({
@@ -138,18 +154,26 @@ fn handle_connection(
     let sub_for_workers = subscription.clone();
 
     // Start GPU miner if available, otherwise fall back to CPU
+    // Only start once — reconnects reuse the existing GPU thread.
     if let Some(ref gpu) = gpu_miner {
-        eprintln!("Starting GPU miner...");
-        gpu.run(
-            job_for_workers.clone(),
-            running_for_workers.clone(),
-            hashrate_for_workers.clone(),
-            share_tx.clone(),
-        );
+        if !gpu_started.swap(true, Ordering::Relaxed) {
+            eprintln!("{} Starting GPU miner...", ts());
+            gpu.run(
+                job_for_workers.clone(),
+                running_for_workers.clone(),
+                hashrate_for_workers.clone(),
+                share_tx.clone(),
+            );
+        } else {
+            eprintln!(
+                "{} GPU miner already running, reusing existing thread",
+                ts()
+            );
+        }
     } else {
         // CPU fallback
         let num_threads = num_cpus::get();
-        eprintln!("Starting {} CPU mining threads", num_threads);
+        eprintln!("{} Starting {} CPU mining threads", ts(), num_threads);
 
         for worker_idx in 0..num_threads {
             let job = job_for_workers.clone();
@@ -184,11 +208,13 @@ fn handle_connection(
                 ]
             });
             eprintln!(
-                "Submitting share: job={}, nonce={:08x}",
-                share.job_id, share.nonce
+                "{} Submitting share: job={}, nonce={:08x}",
+                ts(),
+                share.job_id,
+                share.nonce
             );
             if let Err(e) = send_json(&mut stream, &submit_msg) {
-                eprintln!("[ERROR] Failed to submit share: {}", e);
+                eprintln!("{} [ERROR] Failed to submit share: {}", ts(), e);
             }
         }
 
@@ -196,7 +222,7 @@ fn handle_connection(
         line.clear();
         match reader.read_line(&mut line) {
             Ok(0) => {
-                eprintln!("[WARN] Server closed connection");
+                eprintln!("{} [WARN] Server closed connection", ts());
                 break;
             }
             Ok(_) => {
@@ -239,7 +265,8 @@ fn handle_connection(
                                         let target = nbits_to_target(nbits_u32);
 
                                         eprintln!(
-                                            "New job: id={}, prev_hash={}, nbits={}",
+                                            "{} New job: id={}, prev_hash={}, nbits={}",
+                                            ts(),
                                             job.job_id,
                                             &job.prev_hash[..16],
                                             job.nbits
@@ -252,7 +279,7 @@ fn handle_connection(
                             "mining.set_difficulty" => {
                                 if let Some(params) = msg["params"].as_array() {
                                     if let Some(diff) = params[0].as_f64() {
-                                        eprintln!("Difficulty set to: {}", diff);
+                                        eprintln!("{} Difficulty set to: {}", ts(), diff);
                                     }
                                 }
                             }
@@ -267,8 +294,10 @@ fn handle_connection(
                                                 let extranonce2_size =
                                                     result[2].as_u64().unwrap_or(4) as usize;
                                                 eprintln!(
-                                                    "Subscribed: extranonce1={}, extranonce2_size={}",
-                                                    extranonce1, extranonce2_size
+                                                    "{} Subscribed: extranonce1={}, extranonce2_size={}",
+                                                    ts(),
+                                                    extranonce1,
+                                                    extranonce2_size
                                                 );
                                                 *subscription.lock().unwrap() =
                                                     Some(Subscription {
@@ -279,22 +308,22 @@ fn handle_connection(
                                     } else if id == 2 {
                                         let success = msg["result"].as_bool().unwrap_or(false);
                                         if success {
-                                            eprintln!("Authorized successfully");
+                                            eprintln!("{} Authorized successfully", ts());
                                         } else {
-                                            eprintln!("[ERROR] Authorization failed");
+                                            eprintln!("{} [ERROR] Authorization failed", ts());
                                         }
                                     } else if id >= 100 {
                                         // Share submission response
                                         let accepted = msg["result"].as_bool().unwrap_or(false);
                                         if accepted {
-                                            eprintln!("Share accepted by pool!");
+                                            eprintln!("{} Share accepted by pool!", ts());
                                         } else {
                                             let reason = msg["error"]
                                                 .as_array()
                                                 .and_then(|a| a.get(1))
                                                 .and_then(|v| v.as_str())
                                                 .unwrap_or("unknown reason");
-                                            eprintln!("[WARN] Share rejected: {}", reason);
+                                            eprintln!("{} [WARN] Share rejected: {}", ts(), reason);
                                         }
                                     }
                                 }
@@ -308,7 +337,7 @@ fn handle_connection(
                 }
             }
             Err(e) => {
-                eprintln!("[ERROR] Read error: {}", e);
+                eprintln!("{} [ERROR] Read error: {}", ts(), e);
                 break;
             }
         }

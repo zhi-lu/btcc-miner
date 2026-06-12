@@ -10,8 +10,8 @@
 - **Metal GPU 挖矿** — 在 Apple M1/M2/M3/M4 系列芯片上使用 GPU 进行 SHA-256d 哈希计算
 - **CPU 多线程回退** — 非 macOS 平台或无 GPU 时自动使用 CPU 多线程挖矿
 - **Stratum v1 协议** — 完整的 `mining.subscribe` / `mining.authorize` / `mining.notify` / `mining.submit` 实现
-- **自动重连** — 连接断开后自动重连，无需人工干预
-- **实时算力统计** — 每 10 秒输出当前算力
+- **自动重连** — 连接断开后自动重连，GPU 线程复用不重复创建
+- **实时算力统计** — 每 10 秒输出带时间戳的当前算力
 - **GPU 性能优化** — Midstate 预计算 + 双缓冲命令流水线 + 自动调参
 - **单一二进制** — 纯 Rust 实现，无外部运行时依赖
 
@@ -47,19 +47,16 @@ let username = "你的BTCC地址.worker1";
 
 ### 3. 编译运行
 
-**macOS（GPU 挖矿）：**
+| 平台 | 命令 | 挖矿模式 |
+|------|------|----------|
+| macOS (Apple Silicon) | `cargo run --release --features metal-gpu` | GPU Metal |
+| macOS (Intel) | `cargo run --release` | CPU 多线程 |
+| Linux | `cargo run --release` | CPU 多线程 |
+| Windows | `cargo run --release` | CPU 多线程 |
 
-```bash
-cargo build --release --features metal-gpu
-./target/release/btcc_rust_stratum_miner
-```
-
-**其他平台（CPU 挖矿）：**
-
-```bash
-cargo build --release
-./target/release/btcc_rust_stratum_miner
-```
+> **注意**：`--features metal-gpu` 仅在 macOS 上有效。非 macOS 平台即使加上也会被忽略，自动回退 CPU。
+>
+> 也可以先编译再运行：`cargo build --release --features metal-gpu && ./target/release/btcc_rust_stratum_miner`
 
 ### 4. 停止挖矿
 
@@ -103,17 +100,15 @@ rustflags = ["-C", "target-cpu=apple-m2"]  # M2 专用指令优化
 btcc_rust_stratum_miner/
 ├── Cargo.toml              # 项目配置与依赖
 ├── src/
-│   ├── main.rs             # 入口：初始化日志、连接矿池、启动挖矿
+│   ├── main.rs             # 入口：初始化、连接矿池、启动挖矿
 │   ├── job.rs              # 挖矿作业：coinbase 构建、Merkle 根、区块头、SHA-256d
-│   ├── stratum.rs          # Stratum 协议：TCP 连接、JSON-RPC、多线程/GPU 挖矿调度
+│   ├── stratum.rs          # Stratum 协议：TCP 连接、JSON-RPC、GPU/CPU 挖矿调度
 │   └── gpu/
 │       ├── mod.rs          # GPU 模块入口（条件编译）
 │       ├── metal_impl.rs   # Metal GPU 实现（SHA-256d kernel + 双缓冲流水线）
 │       └── stub.rs         # 非 macOS 平台的 GPU 桩实现
 └── docs/
-    ├── README.md           # 本文件
-    ├── ARCHITECTURE.md     # 架构设计文档
-    └── PERFORMANCE.md      # 性能分析与对比
+    └── README.md           # 本文件
 ```
 
 ## 工作原理
@@ -164,16 +159,40 @@ btcc_rust_stratum_miner/
 └─────────────────────────────────────────────────────┘
 ```
 
+### 断连重连与 GPU 线程复用
+
+每次 TCP 连接断开后，程序自动等待 5 秒重连。**GPU 挖矿线程只在首次连接时启动一次**，后续重连复用已有线程，避免多个 GPU 线程争抢资源导致算力下降。
+
 ## 性能
 
 | 硬件 | 模式 | 算力 |
 |------|------|------|
-| Apple M2 (10 GPU 核) | GPU (Metal) | ~180 MH/s |
+| Apple M2 (8 GPU 核) | GPU (Metal) | ~60-90 MH/s |
 | Apple M2 Pro | GPU (Metal) | ~350-400 MH/s |
 | Apple M2 Max | GPU (Metal) | ~650-700 MH/s |
 | Apple M2 (8 CPU 核) | CPU | ~5-8 MH/s |
 
-> 详细性能分析见 [PERFORMANCE.md](PERFORMANCE.md)
+> 注：M2 基础款实测约 60-90 MH/s（受矿池 vardiff 难度影响），Pro/Max 款需实现 `detect_gpu_cores()` 获取真实核心数才能达到标称算力。
+
+## 日志格式
+
+所有日志带 `[HH:MM:SS]` 时间戳，输出到 stderr：
+
+```
+[14:32:05] Connecting to pool.btc-classic.org:63101...
+[14:32:06] Connected to pool.btc-classic.org:63101
+[14:32:06] GPU: Apple M2 (registry_id=...)
+[14:32:06] Metal GPU miner: threadgroup=576, per_dispatch=16M, gpu_cores=0
+[14:32:06] Starting GPU miner...
+[14:32:06] Subscribed: extranonce1=30005acb, extranonce2_size=8
+[14:32:06] Authorized successfully
+[14:32:07] New job: id=00000eda, prev_hash=7c7f8948, nbits=1902ee94
+[14:32:17] GPU Hashrate: 187976622.83 H/s (187.98 MH/s)
+[14:45:30] [WARN] Server closed connection
+[14:45:35] Reconnecting in 5 seconds...
+[14:45:40] Connected to pool.btc-classic.org:63101
+[14:45:40] GPU miner already running, reusing existing thread
+```
 
 ## 后台运行
 
@@ -207,14 +226,19 @@ caffeinate -i ./target/release/btcc_rust_stratum_miner
 
 ## 常见问题
 
+### 连接频繁断开
+
+Stratum 矿池可能因空闲超时或负载均衡主动断开连接，属正常行为。程序会自动重连，GPU 线程复用不重复创建。观察日志中 `Server closed connection` 的时间间隔可判断是否有规律。
+
+### 算力逐渐下降
+
+如果每次重连后算力递减，说明 GPU 线程被重复创建。v0.2.1 已修复此问题，重连时输出 `GPU miner already running, reusing existing thread`。
+
 ### 连接失败
 
-```
+```bash
 # 测试矿池连通性
 nc -vz pool.btc-classic.org 63101
-
-# 查看详细日志
-RUST_LOG=debug ./target/release/btcc_rust_stratum_miner
 ```
 
 ### GPU 不可用
@@ -224,6 +248,20 @@ RUST_LOG=debug ./target/release/btcc_rust_stratum_miner
 ### 授权失败
 
 确认 `username` 格式为 `钱包地址.矿工名`，BTCC 地址以 `cc1` 开头。
+
+## 更新日志
+
+### v0.2.1
+
+- 所有日志添加 `[HH:MM:SS]` 时间戳
+- 修复断连重连时 GPU 线程重复创建导致算力递减的问题
+- 适配 `metal-rs` 0.29 API（`ComputePipelineDescriptor`、`CommandBuffer`）
+
+### v0.2.0
+
+- Metal GPU 挖矿支持（midstate 优化 + 双缓冲流水线）
+- CPU 多线程回退
+- Stratum v1 协议完整实现
 
 ## 致谢
 
