@@ -337,6 +337,9 @@ fn handle_connection(
                                                 reason
                                             );
                                         }
+                                    } else {
+                                        // Debug: log unexpected id responses
+                                        eprintln!("{} [DEBUG] response id={}: {:?}", ts(), id, msg);
                                     }
                                 }
                             }
