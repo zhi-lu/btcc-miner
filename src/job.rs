@@ -170,8 +170,7 @@ mod tests {
             job_id: "test".into(),
             // Each 8-char group is one 4-byte word in big-endian hex.
             // Word 0: 0x11223344, Word 1: 0x55667788, ... Word 7: 0xFFEEDDCC
-            prev_hash: "112233445566778899aabbccddeeff00"
-                       "00112233445566778899aabbccddeeff".into(),
+            prev_hash: "112233445566778899aabbccddeeff0000112233445566778899aabbffeeddcc".into(),
             coinb1: "".into(),
             coinb2: "".into(),
             merkle_branch: vec![],
@@ -209,8 +208,7 @@ mod tests {
     fn test_merkle_root_direct_copy() {
         let job = MiningJob {
             job_id: "test".into(),
-            prev_hash: "00000000000000000000000000000000"
-                       "00000000000000000000000000000000".into(),
+            prev_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
             coinb1: "".into(),
             coinb2: "".into(),
             merkle_branch: vec![],
