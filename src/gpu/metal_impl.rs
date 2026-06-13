@@ -320,18 +320,6 @@ impl GpuMiner {
                     // Compute share target from current difficulty
                     let diff = *difficulty.lock().unwrap();
                     let target = diff_to_target(diff);
-                    // Debug: print target once per job change
-                    {
-                        use std::io::Write;
-                        let msg = format!(
-                            "{} [DEBUG] diff={:.6}, target={}\n",
-                            ts(),
-                            diff,
-                            hex::encode(target)
-                        );
-                        let _ = std::io::stderr().write_all(msg.as_bytes());
-                        let _ = std::io::stderr().flush();
-                    }
                     // Get extranonce1 from subscription
                     let extranonce1 = {
                         let sub = subscription.lock().unwrap();
