@@ -46,16 +46,24 @@ impl MiningJob {
         let version = u32::from_str_radix(&self.version, 16).unwrap_or(0x20000000);
         header[0..4].copy_from_slice(&version.to_le_bytes());
 
-        // Previous block hash (32 bytes, reversed)
+        // Previous block hash (32 bytes).
+        // Stratum sends prevhash as 32 bytes whose 8 4-byte words are each
+        // in big-endian order. To produce the canonical little-endian-on-the-wire
+        // field, reverse each 4-byte word in place (matching Python reference).
         let prev_hash = hex::decode(&self.prev_hash).unwrap();
-        for i in 0..32 {
-            header[4 + i] = prev_hash[31 - i];
+        for i in 0..8 {
+            let base = 4 + i * 4;
+            header[base..base + 4].copy_from_slice(&[
+                prev_hash[base - 4 + 3],
+                prev_hash[base - 4 + 2],
+                prev_hash[base - 4 + 1],
+                prev_hash[base - 4 + 0],
+            ]);
         }
 
-        // Merkle root (32 bytes, reversed)
-        for i in 0..32 {
-            header[36 + i] = merkle_root[31 - i];
-        }
+        // Merkle root (32 bytes) — sha256d output is already in internal
+        // byte order; copy directly (matching Python reference).
+        header[36..68].copy_from_slice(merkle_root);
 
         // Time (4 bytes, little-endian)
         header[68..72].copy_from_slice(&ntime.to_le_bytes());
