@@ -107,8 +107,10 @@ btcc_rust_stratum_miner/
 │       ├── mod.rs          # GPU 模块入口（条件编译）
 │       ├── metal_impl.rs   # Metal GPU 实现（SHA-256d kernel + 双缓冲流水线）
 │       └── stub.rs         # 非 macOS 平台的 GPU 桩实现
-└── docs/
-    └── README.md           # 本文件
+├── docs/
+│   ├── README.md              # 项目说明
+│   ├── stratum_protocol.md    # Stratum 协议详解
+│   └── mining_algorithm.md    # SHA-256d 挖矿核心算法
 ```
 
 ## 工作原理
