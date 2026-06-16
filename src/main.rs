@@ -13,22 +13,27 @@ fn main() {
         std::env::consts::ARCH
     );
 
-    // Try to initialize GPU miner
-    let gpu_miner = gpu::GpuMiner::new();
-    let use_gpu = gpu_miner.is_some();
+    // Try to initialize GPU miners (all available GPUs)
+    let gpu_miners = gpu::GpuMiner::new();
+    let use_gpu = !gpu_miners.is_empty();
 
     let server = "pool.btc-classic.org:63101";
-    let username = "cc1qqp3808t2ejeew386drfdj2amyys7ntfexfysqq.worker1";
+    let username = "cc1q6qmx0kgdf94xe8046ee9tnvn6l20hk8nm8naw8.worker1";
     let password = "x";
 
     println!("Server: stratum+tcp://{}", server);
     println!("Username: {}", username);
-    println!(
-        "Mining mode: {}",
-        if use_gpu { "GPU (Metal)" } else { "CPU" }
-    );
+    if use_gpu {
+        println!(
+            "Mining mode: GPU ({} device{})",
+            gpu_miners.len(),
+            if gpu_miners.len() > 1 { "s" } else { "" }
+        );
+    } else {
+        println!("Mining mode: CPU");
+    }
 
-    let client = StratumClient::new(server, username, password, gpu_miner);
+    let client = StratumClient::new(server, username, password, gpu_miners);
     client.run();
 
     println!("Miner started. Press Enter to stop...");

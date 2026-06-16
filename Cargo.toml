@@ -15,6 +15,7 @@ objc = { version = "0.2", optional = true }
 [features]
 default = []
 metal-gpu = ["metal", "objc"]
+cuda-gpu = []
 
 [profile.release]
 opt-level = 3

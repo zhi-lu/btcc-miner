@@ -42,7 +42,7 @@ pub struct StratumClient {
     username: String,
     password: String,
     running: Arc<AtomicBool>,
-    gpu_miner: Option<GpuMiner>,
+    gpu_miners: Vec<GpuMiner>,
     /// Shared mining job state.
     pub current_job: Arc<Mutex<Option<MiningJob>>>,
     pub subscription: Arc<Mutex<Option<Subscription>>>,
@@ -52,13 +52,13 @@ pub struct StratumClient {
 }
 
 impl StratumClient {
-    pub fn new(server: &str, username: &str, password: &str, gpu_miner: Option<GpuMiner>) -> Self {
+    pub fn new(server: &str, username: &str, password: &str, gpu_miners: Vec<GpuMiner>) -> Self {
         StratumClient {
             server: server.to_string(),
             username: username.to_string(),
             password: password.to_string(),
             running: Arc::new(AtomicBool::new(true)),
-            gpu_miner,
+            gpu_miners,
             current_job: Arc::new(Mutex::new(None)),
             subscription: Arc::new(Mutex::new(None)),
             hashrate: Arc::new(Mutex::new(0.0)),
@@ -76,7 +76,7 @@ impl StratumClient {
         let server = self.server.clone();
         let username = self.username.clone();
         let password = self.password.clone();
-        let gpu_miner = self.gpu_miner.clone();
+        let gpu_miners = self.gpu_miners.clone();
 
         let gpu_started = Arc::new(AtomicBool::new(false));
 
@@ -98,7 +98,7 @@ impl StratumClient {
                         &subscription,
                         &hashrate,
                         &difficulty,
-                        &gpu_miner,
+                        &gpu_miners,
                         &gpu_started,
                     ) {
                         eprintln!("{} [ERROR] Connection error: {}", ts(), e);
@@ -130,7 +130,7 @@ fn handle_connection(
     subscription: &Arc<Mutex<Option<Subscription>>>,
     hashrate: &Arc<Mutex<f64>>,
     difficulty: &Arc<Mutex<f64>>,
-    gpu_miner: &Option<GpuMiner>,
+    gpu_miners: &Vec<GpuMiner>,
     gpu_started: &Arc<AtomicBool>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Subscribe to mining
@@ -160,24 +160,22 @@ fn handle_connection(
     let sub_for_workers = subscription.clone();
     let diff_for_workers = difficulty.clone();
 
-    // Start GPU miner if available, otherwise fall back to CPU
-    // Only start once — reconnects reuse the existing GPU thread.
-    if let Some(ref gpu) = gpu_miner {
+    // Start all GPU miners, or fall back to CPU
+    if !gpu_miners.is_empty() {
         if !gpu_started.swap(true, Ordering::Relaxed) {
-            eprintln!("{} Starting GPU miner...", ts());
-            gpu.run(
-                job_for_workers.clone(),
-                running_for_workers.clone(),
-                hashrate_for_workers.clone(),
-                share_tx.clone(),
-                sub_for_workers.clone(),
-                diff_for_workers.clone(),
-            );
+            eprintln!("{} Starting {} GPU miner(s)...", ts(), gpu_miners.len());
+            for gpu in gpu_miners {
+                gpu.run(
+                    job_for_workers.clone(),
+                    running_for_workers.clone(),
+                    hashrate_for_workers.clone(),
+                    share_tx.clone(),
+                    sub_for_workers.clone(),
+                    diff_for_workers.clone(),
+                );
+            }
         } else {
-            eprintln!(
-                "{} GPU miner already running, reusing existing thread",
-                ts()
-            );
+            eprintln!("{} GPU miners already running, reusing threads", ts());
         }
     } else {
         // CPU fallback

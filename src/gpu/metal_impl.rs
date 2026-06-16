@@ -184,8 +184,8 @@ impl Clone for GpuMiner {
 }
 
 impl GpuMiner {
-    /// Initialize the Metal GPU miner with auto-tuning.
-    pub fn new() -> Option<Self> {
+    /// Initialize the Metal GPU miner. Returns vec with 0 or 1 elements.
+    pub fn new() -> Vec<Self> {
         autoreleasepool(|| {
             let device = Device::system_default()?;
             eprintln!(
@@ -254,14 +254,15 @@ impl GpuMiner {
                 gpu_cores
             );
 
-            Some(GpuMiner {
+            let miner = GpuMiner {
                 device,
                 command_queue,
                 pipeline,
                 threadgroup_size,
                 per_dispatch: per_dispatch as u32,
-            })
-        })
+            };
+            Some(vec![miner])
+        }).unwrap_or_else(|| vec![])
     }
 
     /// Run the GPU mining loop.
