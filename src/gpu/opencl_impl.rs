@@ -166,12 +166,13 @@ impl GpuMiner {
     pub fn new(gpu_devices: &[u32], gpu_usage: u32) -> Vec<Self> {
         let gpu_usage = gpu_usage.clamp(1, 100);
 
-        // Collect all GPU devices across all platforms
-        let mut all_gpus: Vec<(u32, Device)> = Vec::new();
+        // Collect all GPU devices across all platforms, keeping platform association.
+        // Each device MUST be used with its own platform when creating a context.
+        let mut all_gpus: Vec<(u32, Device, Platform)> = Vec::new();
         for platform in Platform::list() {
             if let Ok(devices) = Device::list(&platform, Some(DeviceType::GPU)) {
                 for d in devices {
-                    all_gpus.push((all_gpus.len() as u32, d));
+                    all_gpus.push((all_gpus.len() as u32, d, platform));
                 }
             }
         }
@@ -182,18 +183,18 @@ impl GpuMiner {
         }
 
         // Filter by gpu_devices if specified
-        let selected: Vec<(u32, Device)> = if gpu_devices.is_empty() {
+        let selected: Vec<(u32, Device, Platform)> = if gpu_devices.is_empty() {
             all_gpus
         } else {
             all_gpus
                 .into_iter()
-                .filter(|(idx, _)| gpu_devices.contains(idx))
+                .filter(|(idx, _, _)| gpu_devices.contains(idx))
                 .collect()
         };
 
         let mut miners = Vec::new();
-        for (idx, device) in selected {
-            match Self::init_device(idx, device, gpu_usage) {
+        for (idx, device, platform) in selected {
+            match Self::init_device(idx, device, platform, gpu_usage) {
                 Some(m) => miners.push(m),
                 None => eprintln!("[WARN] GPU #{} initialization failed, skipping", idx),
             }
@@ -205,11 +206,12 @@ impl GpuMiner {
         miners
     }
 
-    fn init_device(idx: u32, device: Device, gpu_usage: u32) -> Option<Self> {
+    fn init_device(idx: u32, device: Device, platform: Platform, gpu_usage: u32) -> Option<Self> {
         let name = device.name().unwrap_or_else(|_| "unknown".into());
         let vendor = device.vendor().unwrap_or_else(|_| "unknown".into());
 
         let context = Context::builder()
+            .platform(platform)
             .devices(device.clone())
             .build()
             .map_err(|e| eprintln!("[ERROR] GPU #{}: context: {}", idx, e))
