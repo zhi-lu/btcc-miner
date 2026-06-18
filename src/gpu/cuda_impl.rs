@@ -104,30 +104,47 @@ pub struct GpuMiner {
     device_name: String,
     #[allow(dead_code)]
     sm_count: u32,
+    /// GPU usage percentage (1-100). 100 = full throttle.
+    gpu_usage: u32,
 }
 
 impl GpuMiner {
-    /// Return all available CUDA GPUs.
-    pub fn new() -> Vec<Self> {
+    /// Return CUDA GPUs filtered by `gpu_devices` and configured with `gpu_usage`.
+    /// If `gpu_devices` is empty, all available GPUs are returned.
+    pub fn new(gpu_devices: &[u32], gpu_usage: u32) -> Vec<Self> {
         let result = unsafe { cuInit(0) };
         if result != CUDA_SUCCESS {
             eprintln!("[ERROR] cuInit failed (error {}). Is the NVIDIA driver installed?", result);
             return vec![];
         }
 
+        let gpu_usage = gpu_usage.clamp(1, 100);
         let mut devices = Vec::new();
-        for ordinal in 0..8u32 {
-            if let Some(miner) = Self::try_init_device(ordinal) {
-                devices.push(miner);
+
+        if gpu_devices.is_empty() {
+            // All available GPUs
+            for ordinal in 0..8u32 {
+                if let Some(miner) = Self::try_init_device(ordinal, gpu_usage) {
+                    devices.push(miner);
+                }
+            }
+        } else {
+            // Only specified GPUs
+            for &ordinal in gpu_devices {
+                match Self::try_init_device(ordinal, gpu_usage) {
+                    Some(miner) => devices.push(miner),
+                    None => eprintln!("[WARN] GPU #{} not found, skipping", ordinal),
+                }
             }
         }
+
         if devices.is_empty() {
-            eprintln!("[ERROR] No CUDA-capable GPU found.");
+            eprintln!("[ERROR] No CUDA-capable GPU found matching the filter.");
         }
         devices
     }
 
-    fn try_init_device(ordinal: u32) -> Option<Self> {
+    fn try_init_device(ordinal: u32, gpu_usage: u32) -> Option<Self> {
         unsafe {
             let mut device: CUdevice = 0;
             if cuDeviceGet(&mut device, ordinal as i32) != CUDA_SUCCESS {
@@ -175,7 +192,7 @@ impl GpuMiner {
                 per_dispatch / 1_048_576
             );
 
-            Some(GpuMiner { device_ordinal: ordinal, block_size, per_dispatch, device_name, sm_count })
+            Some(GpuMiner { device_ordinal: ordinal, block_size, per_dispatch, device_name, sm_count, gpu_usage })
         }
     }
 
@@ -193,6 +210,7 @@ impl GpuMiner {
         let block_size = self.block_size;
         let per_dispatch = self.per_dispatch;
         let device_name = self.device_name.clone();
+        let gpu_usage = self.gpu_usage;
 
         thread::spawn(move || {
             let resources = match CudaCtx::new(device_ordinal) {
@@ -268,6 +286,7 @@ impl GpuMiner {
                     resources.reset_flags();
 
                     // Run GPU search with double-buffered streams
+                    let batch_start = Instant::now();
                     let result = resources.search(
                         nonce_base,
                         per_dispatch as u64,
@@ -307,6 +326,17 @@ impl GpuMiner {
                     }
 
                     nonce_base = nonce_base.wrapping_add(per_dispatch);
+
+                    // ── GPU usage throttle ─────────────────────────────────
+                    if gpu_usage < 100 {
+                        // Sleep proportionally to reduce GPU utilization.
+                        // For gpu_usage=50, sleep as long as the batch took.
+                        let batch_us = batch_start.elapsed().as_micros() as u64;
+                        let sleep_us = batch_us * (100 - gpu_usage as u64) / gpu_usage as u64;
+                        if sleep_us > 0 {
+                            thread::sleep(std::time::Duration::from_micros(sleep_us));
+                        }
+                    }
 
                     let elapsed = last_report.elapsed().as_secs_f64();
                     if elapsed >= 10.0 {

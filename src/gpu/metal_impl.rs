@@ -185,7 +185,8 @@ impl Clone for GpuMiner {
 
 impl GpuMiner {
     /// Initialize the Metal GPU miner. Returns vec with 0 or 1 elements.
-    pub fn new() -> Vec<Self> {
+    /// `_gpu_devices` and `_gpu_usage` are unused on macOS (single integrated GPU).
+    pub fn new(_gpu_devices: &[u32], _gpu_usage: u32) -> Vec<Self> {
         autoreleasepool(|| {
             let device = Device::system_default()?;
             eprintln!(

@@ -43,6 +43,7 @@ pub struct StratumClient {
     password: String,
     running: Arc<AtomicBool>,
     gpu_miners: Vec<GpuMiner>,
+    cpu_cores: usize,
     /// Shared mining job state.
     pub current_job: Arc<Mutex<Option<MiningJob>>>,
     pub subscription: Arc<Mutex<Option<Subscription>>>,
@@ -52,13 +53,20 @@ pub struct StratumClient {
 }
 
 impl StratumClient {
-    pub fn new(server: &str, username: &str, password: &str, gpu_miners: Vec<GpuMiner>) -> Self {
+    pub fn new(
+        server: &str,
+        username: &str,
+        password: &str,
+        gpu_miners: Vec<GpuMiner>,
+        cpu_cores: usize,
+    ) -> Self {
         StratumClient {
             server: server.to_string(),
             username: username.to_string(),
             password: password.to_string(),
             running: Arc::new(AtomicBool::new(true)),
             gpu_miners,
+            cpu_cores,
             current_job: Arc::new(Mutex::new(None)),
             subscription: Arc::new(Mutex::new(None)),
             hashrate: Arc::new(Mutex::new(0.0)),
@@ -77,6 +85,7 @@ impl StratumClient {
         let username = self.username.clone();
         let password = self.password.clone();
         let gpu_miners = self.gpu_miners.clone();
+        let cpu_cores = self.cpu_cores;
 
         let gpu_started = Arc::new(AtomicBool::new(false));
 
@@ -100,6 +109,7 @@ impl StratumClient {
                         &difficulty,
                         &gpu_miners,
                         &gpu_started,
+                        cpu_cores,
                     ) {
                         eprintln!("{} [ERROR] Connection error: {}", ts(), e);
                     }
@@ -132,6 +142,7 @@ fn handle_connection(
     difficulty: &Arc<Mutex<f64>>,
     gpu_miners: &Vec<GpuMiner>,
     gpu_started: &Arc<AtomicBool>,
+    cpu_cores: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Subscribe to mining
     let sub_msg = serde_json::json!({
@@ -178,8 +189,8 @@ fn handle_connection(
             eprintln!("{} GPU miners already running, reusing threads", ts());
         }
     } else {
-        // CPU fallback
-        let num_threads = num_cpus::get();
+        // CPU fallback — use configured core count
+        let num_threads = if cpu_cores > 0 { cpu_cores } else { num_cpus::get() };
         eprintln!("{} Starting {} CPU mining threads", ts(), num_threads);
 
         for worker_idx in 0..num_threads {

@@ -11,8 +11,8 @@ use crate::stratum::{FoundShare, Subscription};
 pub struct GpuMiner;
 
 impl GpuMiner {
-    pub fn new() -> Vec<Self> {
-        eprintln!("GPU mining is only available on macOS with --features metal-gpu");
+    pub fn new(_gpu_devices: &[u32], _gpu_usage: u32) -> Vec<Self> {
+        eprintln!("GPU mining is only available on macOS with --features metal-gpu, or on Linux with --features cuda-gpu");
         vec![]
     }
 

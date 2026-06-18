@@ -1,0 +1,44 @@
+# BTCC Rust Stratum Miner — Configuration
+# Edit this file to change miner settings without recompiling.
+
+# ── Pool connection & credentials ─────────────────────────────────────
+[miner]
+# Stratum server host:port
+server = "pool.btc-classic.org:63101"
+
+# Miner username (wallet_address.worker_name)
+username = "cc1q6qmx0kgdf94xe8046ee9tnvn6l20hk8nm8naw8.worker1"
+
+# Miner password (usually "x" for most pools)
+password = "x"
+
+
+# ── Hardware / resource settings ──────────────────────────────────────
+[machine]
+# Mining mode: "gpu" or "cpu"
+#
+#   "gpu" uses one of these backends (auto-selected at compile time):
+#     OpenCL  — default, all platforms (Linux/Windows/macOS), all vendors (NVIDIA/AMD/Intel)
+#     CUDA    — optional (--features cuda-gpu), Linux/Windows, NVIDIA only, best perf
+#     Metal   — macOS only (--features metal-gpu), Apple Silicon + AMD
+#
+#   "cpu" — use CPU cores only
+mode = "gpu"
+
+# ── CPU settings (only used when mode = "cpu") ──
+# Number of CPU cores to use. 0 = auto (all cores).
+cpu_cores = 0
+
+# ── GPU settings (only used when mode = "gpu") ──
+# Which GPUs to use (by device index). Empty list = all available.
+# Example: gpu_devices = [0]         # only first GPU
+# Example: gpu_devices = [0, 1]      # first two GPUs
+# Example: gpu_devices = []          # all GPUs
+gpu_devices = []
+
+# GPU resource usage percentage (1–100).
+#   100 = full speed (default)
+#   50  = ~50% utilization (inserts sleep between batches)
+# Lower values reduce power consumption / heat.
+gpu_usage = 100
+
