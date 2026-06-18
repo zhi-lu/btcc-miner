@@ -5,11 +5,11 @@
 
 **中文** | [English](README.en.md)
 
-基于 Rust 实现的 BTCC (Bitcoin-Classic) Stratum 矿池挖矿客户端，支持 **OpenCL / CUDA / Metal** 多 GPU 后端加速，以及 **CPU 多线程**回退。
+基于 Rust 实现的 BTCC (Bitcoin-Classic) Stratum 矿池挖矿的 CLI，支持 **OpenCL / CUDA / Metal** 多 GPU 后端加速，以及 **CPU 多线程**回退。
 
 ## 特性
 
-- **多 GPU 后端** — OpenCL（默认，跨平台全厂商）、CUDA（NVIDIA 最高性能）、Metal（macOS Apple Silicon/AMD）
+- **多 GPU 后端** — OpenCL（默认，跨平台全厂商）、CUDA（NVIDIA Straight）、Metal（macOS Apple Silicon/AMD）
 - **多 GPU 并行** — 自动检测多张显卡，每个 GPU 一个独立挖矿线程
 - **可配置** — 通过 `.config/config.toml` 配置矿池、钱包、GPU 选择、资源利用率，无需改代码
 - **命令行界面** — 子命令风格 CLI：`run` / `version` / `help`
@@ -39,8 +39,8 @@
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/zhi-lu/btcc_miner.git
-cd btcc_miner
+git clone https://github.com/zhi-lu/btcc-miner.git
+cd btcc-miner
 ```
 
 ### 2. 修改配置
@@ -65,9 +65,12 @@ cpu_cores = 0         # CPU 线程数, 0=自动
 | 平台 | 命令 |
 |------|------|
 | **Linux / Windows（通用）** | `cargo build --release && ./target/release/btcc_miner run` |
-| **Linux / Windows（NVIDIA 高性能）** | `cargo build --release --features cuda-gpu && ./target/release/btcc_miner run` |
-| **macOS（Apple Silicon / AMD）** | `cargo build --release --features metal-gpu && ./target/release/btcc_miner run` |
+| **Linux / Windows（NVIDIA Straight）** | `cargo build --release --features cuda-gpu && ./target/release/btcc_miner run` |
+| **macOS（Apple Silicon）** | `cargo build --release --features metal-gpu && ./target/release/btcc_miner run` |
+| **macOS（AMD 显卡）** | `cargo build --release && ./target/release/btcc_miner run` |
 
+> 💡 macOS AMD 显卡建议走 OpenCL（默认编译），性能优于 Metal。
+>
 > 也可用 `-c` 指定配置文件：`./btcc_miner -c /path/to/my.toml run`
 
 ### 4. 停止挖矿
@@ -109,11 +112,14 @@ Examples:
 # OpenCL (默认，一行构建)
 cargo build --release
 
-# CUDA (NVIDIA 最高性能，需要 CUDA Toolkit)
+# CUDA (NVIDIA Straight，需要 CUDA Toolkit)
 cargo build --release --features cuda-gpu
 
-# Metal (macOS，需要 Xcode)
+# Metal (macOS Apple Silicon，需要 Xcode)
 cargo build --release --features metal-gpu
+
+# macOS AMD 显卡建议走 OpenCL（默认），性能优于 Metal（~510 vs ~380 MH/s）
+cargo build --release
 ```
 
 ### CUDA 编译要求
@@ -136,13 +142,13 @@ password = "x"                             # 矿池密码
 mode        = "gpu"       # 挖矿模式: "gpu" 或 "cpu"
 cpu_cores   = 0           # CPU 线程数, 0=自动
 gpu_devices = []          # GPU 列表: [] = 全部, [0] = 仅第一张, [0,1] = 前两张
-gpu_usage   = 100         # GPU 使用率 1-100%, <100 会间歇休眠降功耗
+gpu_usage   = 100         # GPU 使用率 1-100%, 推荐拉满 100 以获得最佳算力
 ```
 
 ## 项目结构
 
 ```
-btcc_miner/
+btcc-miner/
 ├── Cargo.toml                # 项目配置与依赖
 ├── build.rs                  # 编译脚本（CUDA PTX 编译 + 跨平台链接）
 ├── config.toml               # 运行配置文件
@@ -154,7 +160,7 @@ btcc_miner/
 │   └── gpu/
 │       ├── mod.rs            # GPU 模块路由（条件编译）
 │       ├── opencl_impl.rs    # OpenCL GPU 实现（跨平台默认）
-│       ├── cuda_impl.rs      # CUDA GPU 实现（NVIDIA 高性能）
+│       ├── cuda_impl.rs      # CUDA GPU 实现（NVIDIA Straight）
 │       ├── metal_impl.rs     # Metal GPU 实现（macOS）
 │       ├── sha256d_kernel.cu # CUDA kernel 源码
 │       └── stub.rs           # CPU 回退桩
@@ -166,16 +172,18 @@ btcc_miner/
 
 ## 性能
 
+> 以下数据均在 `gpu_usage = 100` 条件下测得，GPU 满载运行。
+
 | 硬件 | 后端 | 算力 |
 |------|------|------|
-| NVIDIA RTX 4090 | CUDA | ~2,600 MH/s |
-| NVIDIA RTX 4090 | OpenCL | ~1,300 MH/s |
-| Apple M2 (8 GPU 核) | Metal | ~188 MH/s |
-| Apple M2 Pro | Metal | ~350-400 MH/s |
-| Apple M2 Max | Metal | ~650-700 MH/s |
-| Apple M2 (8 CPU 核) | CPU | ~5-8 MH/s |
-
-> NVIDIA 用户优先用 CUDA（性能约为 OpenCL 的 2 倍）。AMD GPU 用户用 OpenCL。
+| NVIDIA RTX 4090 | CUDA | ~2,650 MH/s |
+| NVIDIA RTX 4090 | OpenCL | ~2,650 MH/s |
+| AMD Radeon Pro 5500M (APPLE) | OpenCL | ~510 MH/s |
+| AMD Radeon Pro 5500M (APPLE) | Metal | ~380 MH/s |
+| Apple M2 (8 GPU cores) | Metal | ~188 MH/s |
+| Apple M2 Pro | Metal | ~350–400 MH/s |
+| Apple M2 Max | Metal | ~650–700 MH/s |
+| Apple M2 (8 CPU cores) | CPU | ~5–8 MH/s |
 
 ## 后台运行
 

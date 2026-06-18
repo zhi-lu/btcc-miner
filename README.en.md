@@ -5,7 +5,7 @@
 
 [中文文档](README.md) | **English**
 
-A Rust-based BTCC (Bitcoin-Classic) Stratum mining client with **OpenCL / CUDA / Metal** multi-GPU backend acceleration and **CPU multi-threaded** fallback.
+A Rust-based BTCC (Bitcoin-Classic) Stratum mining CLI with **OpenCL / CUDA / Metal** multi-GPU backend acceleration and **CPU multi-threaded** fallback.
 
 ## Features
 
@@ -39,8 +39,8 @@ A Rust-based BTCC (Bitcoin-Classic) Stratum mining client with **OpenCL / CUDA /
 ### 1. Clone
 
 ```bash
-git clone https://github.com/zhi-lu/btcc_miner.git
-cd btcc_miner
+git clone https://github.com/zhi-lu/btcc-miner
+cd btcc-miner
 ```
 
 ### 2. Configure
@@ -65,9 +65,12 @@ cpu_cores = 0         # CPU thread count, 0 = auto
 | Platform | Command |
 |----------|---------|
 | **Linux / Windows (general)** | `cargo build --release && ./target/release/btcc_miner run` |
-| **Linux / Windows (NVIDIA max perf)** | `cargo build --release --features cuda-gpu && ./target/release/btcc_miner run` |
-| **macOS (Apple Silicon / AMD)** | `cargo build --release --features metal-gpu && ./target/release/btcc_miner run` |
+| **Linux / Windows (NVIDIA Straight)** | `cargo build --release --features cuda-gpu && ./target/release/btcc_miner run` |
+| **macOS (Apple Silicon)** | `cargo build --release --features metal-gpu && ./target/release/btcc_miner run` |
+| **macOS (AMD GPU)** | `cargo build --release && ./target/release/btcc_miner run` |
 
+> 💡 macOS AMD GPUs should prefer OpenCL (default build) — it outperforms Metal.
+>
 > Use `-c` to specify a custom config path: `./btcc_miner -c /path/to/my.toml run`
 
 ### 4. Stop Mining
@@ -109,11 +112,14 @@ Examples:
 # OpenCL (default, single command)
 cargo build --release
 
-# CUDA (NVIDIA best performance, requires CUDA Toolkit)
+# CUDA (NVIDIA Straight, requires CUDA Toolkit)
 cargo build --release --features cuda-gpu
 
-# Metal (macOS, requires Xcode)
+# Metal (macOS Apple Silicon, requires Xcode)
 cargo build --release --features metal-gpu
+
+# macOS AMD GPUs: prefer OpenCL (default) — outperforms Metal (~510 vs 380 MH/s)
+cargo build --release
 ```
 
 ### CUDA Build Requirements
@@ -136,13 +142,13 @@ password = "x"                             # Pool password
 mode        = "gpu"       # Mining mode: "gpu" or "cpu"
 cpu_cores   = 0           # CPU thread count, 0 = auto
 gpu_devices = []          # GPU device list: [] = all, [0] = first only, [0,1] = first two
-gpu_usage   = 100         # GPU usage 1–100%, <100 sleeps between batches to reduce power
+gpu_usage   = 100         # GPU usage 1–100%, set to 100 for maximum hashrate
 ```
 
 ## Project Structure
 
 ```
-btcc_miner/
+btcc-miner/
 ├── Cargo.toml                # Project config & dependencies
 ├── build.rs                  # Build script (CUDA PTX compilation + cross-platform linking)
 ├── config.toml               # Runtime configuration
@@ -166,16 +172,18 @@ btcc_miner/
 
 ## Performance
 
+> All benchmarks measured with `gpu_usage = 100` (GPU at full load).
+
 | Hardware | Backend | Hashrate |
 |----------|---------|----------|
-| NVIDIA RTX 4090 | CUDA | ~2,600 MH/s |
-| NVIDIA RTX 4090 | OpenCL | ~1,300 MH/s |
+| NVIDIA RTX 4090 | CUDA | ~2,650 MH/s |
+| NVIDIA RTX 4090 | OpenCL | ~2,650 MH/s |
+| AMD Radeon Pro 5500M (APPLE) | OpenCL | ~510 MH/s |
+| AMD Radeon Pro 5500M (APPLE) | Metal | ~380 MH/s |
 | Apple M2 (8 GPU cores) | Metal | ~188 MH/s |
 | Apple M2 Pro | Metal | ~350–400 MH/s |
 | Apple M2 Max | Metal | ~650–700 MH/s |
 | Apple M2 (8 CPU cores) | CPU | ~5–8 MH/s |
-
-> NVIDIA users should prefer CUDA (~2× OpenCL performance). AMD GPU users use OpenCL.
 
 ## Background Running
 

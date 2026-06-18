@@ -1,4 +1,4 @@
-# BTCC Rust Stratum Miner — Configuration
+# BTCC Miner — Configuration
 # Edit this file to change miner settings without recompiling.
 
 # ── Pool connection & credentials ─────────────────────────────────────
